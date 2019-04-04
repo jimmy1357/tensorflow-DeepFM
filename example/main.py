@@ -15,7 +15,7 @@ from DataReader import FeatureDictionary, DataParser
 sys.path.append("..")
 from DeepFM import DeepFM
 
-gini_scorer = make_scorer(gini_norm, greater_is_better=True, needs_proba=True)
+gini_scorer = make_scorer(gini_norm, greater_is_better=True, needs_proba=True) # todo: ???
 
 
 def _load_data():
@@ -24,22 +24,22 @@ def _load_data():
     dfTest = pd.read_csv(config.TEST_FILE)
 
     def preprocess(df):
-        cols = [c for c in df.columns if c not in ["id", "target"]]
-        df["missing_feat"] = np.sum((df[cols] == -1).values, axis=1)
-        df["ps_car_13_x_ps_reg_03"] = df["ps_car_13"] * df["ps_reg_03"]
+        cols = [c for c in df.columns if c not in ["id", "target"]] # 取出非id和target列
+        df["missing_feat"] = np.sum((df[cols] == -1).values, axis=1) # 计算非id和target列的缺失特征
+        df["ps_car_13_x_ps_reg_03"] = df["ps_car_13"] * df["ps_reg_03"] # 人工构造一个交叉特征
         return df
 
     dfTrain = preprocess(dfTrain)
     dfTest = preprocess(dfTest)
 
     cols = [c for c in dfTrain.columns if c not in ["id", "target"]]
-    cols = [c for c in cols if (not c in config.IGNORE_COLS)]
+    cols = [c for c in cols if (not c in config.IGNORE_COLS)] # 取出非id和target，且不在忽略列表中的列
 
     X_train = dfTrain[cols].values
     y_train = dfTrain["target"].values
     X_test = dfTest[cols].values
     ids_test = dfTest["id"].values
-    cat_features_indices = [i for i,c in enumerate(cols) if c in config.CATEGORICAL_COLS]
+    cat_features_indices = [i for i,c in enumerate(cols) if c in config.CATEGORICAL_COLS] #取出类别特征的下标列表
 
     return dfTrain, dfTest, X_train, y_train, X_test, ids_test, cat_features_indices
 
@@ -49,10 +49,10 @@ def _run_base_model_dfm(dfTrain, dfTest, folds, dfm_params):
                            numeric_cols=config.NUMERIC_COLS,
                            ignore_cols=config.IGNORE_COLS)
     data_parser = DataParser(feat_dict=fd)
-    Xi_train, Xv_train, y_train = data_parser.parse(df=dfTrain, has_label=True)
-    Xi_test, Xv_test, ids_test = data_parser.parse(df=dfTest)
+    Xi_train, Xv_train, y_train = data_parser.parse(df=dfTrain, has_label=True) # 返回样本特征id， 样本特征值， label
+    Xi_test, Xv_test, ids_test = data_parser.parse(df=dfTest) # 返回样本特征id， 样本特征值， 样本id
 
-    dfm_params["feature_size"] = fd.feat_dim
+    dfm_params["feature_size"] = fd.feat_dim # 特征总数
     dfm_params["field_size"] = len(Xi_train[0])
 
     y_train_meta = np.zeros((dfTrain.shape[0], 1), dtype=float)
