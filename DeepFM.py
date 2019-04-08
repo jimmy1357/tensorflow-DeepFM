@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Tensorflow implementation of DeepFM [1]
 
@@ -68,21 +69,22 @@ class DeepFM(BaseEstimator, TransformerMixin):
             tf.set_random_seed(self.random_seed)
 
             self.feat_index = tf.placeholder(tf.int32, shape=[None, None],
-                                                 name="feat_index")  # None * F
+                                                 name="feat_index")  # None * F None表示样本数，每个样本有F个field
             self.feat_value = tf.placeholder(tf.float32, shape=[None, None],
-                                                 name="feat_value")  # None * F
+                                                 name="feat_value")  # None * F None表示样本数，每个样本有F个field
             self.label = tf.placeholder(tf.float32, shape=[None, 1], name="label")  # None * 1
             self.dropout_keep_fm = tf.placeholder(tf.float32, shape=[None], name="dropout_keep_fm")
             self.dropout_keep_deep = tf.placeholder(tf.float32, shape=[None], name="dropout_keep_deep")
             self.train_phase = tf.placeholder(tf.bool, name="train_phase")
 
-            self.weights = self._initialize_weights()
+            self.weights = self._initialize_weights()  # 构造网络结构，包括embedding和之后的全连接层
 
             # model
-            self.embeddings = tf.nn.embedding_lookup(self.weights["feature_embeddings"],
-                                                             self.feat_index)  # None * F * K
+            self.embeddings = tf.nn.embedding_lookup(
+                self.weights["feature_embeddings"],
+                self.feat_index)  # None * F * K   从embedding层取出特征对应的特征值, None表示样本数，每个样本有F个field，每个field对应K维的embedding向量
             feat_value = tf.reshape(self.feat_value, shape=[-1, self.field_size, 1])
-            self.embeddings = tf.multiply(self.embeddings, feat_value)
+            self.embeddings = tf.multiply(self.embeddings, feat_value)  # feat_value: 数值特征为本身的数值，分类特征为1
 
             # ---------- first order term ----------
             self.y_first_order = tf.nn.embedding_lookup(self.weights["feature_bias"], self.feat_index) # None * F * 1
@@ -182,7 +184,7 @@ class DeepFM(BaseEstimator, TransformerMixin):
         # embeddings
         weights["feature_embeddings"] = tf.Variable(
             tf.random_normal([self.feature_size, self.embedding_size], 0.0, 0.01),
-            name="feature_embeddings")  # feature_size * K
+            name="feature_embeddings")  # feature_size * K   每个field的特征只全连接K个特征组成的embedding向量
         weights["feature_bias"] = tf.Variable(
             tf.random_uniform([self.feature_size, 1], 0.0, 1.0), name="feature_bias")  # feature_size * 1
 
@@ -194,7 +196,7 @@ class DeepFM(BaseEstimator, TransformerMixin):
             np.random.normal(loc=0, scale=glorot, size=(input_size, self.deep_layers[0])), dtype=np.float32)
         weights["bias_0"] = tf.Variable(np.random.normal(loc=0, scale=glorot, size=(1, self.deep_layers[0])),
                                                         dtype=np.float32)  # 1 * layers[0]
-        for i in range(1, num_layer):
+        for i in range(1, num_layer):  # 全连接
             glorot = np.sqrt(2.0 / (self.deep_layers[i-1] + self.deep_layers[i]))
             weights["layer_%d" % i] = tf.Variable(
                 np.random.normal(loc=0, scale=glorot, size=(self.deep_layers[i-1], self.deep_layers[i])),
@@ -236,7 +238,7 @@ class DeepFM(BaseEstimator, TransformerMixin):
 
 
     # shuffle three lists simutaneously
-    def shuffle_in_unison_scary(self, a, b, c):
+    def shuffle_in_unison_scary(self, a, b, c):  # 使用相同的随机状态随机a,b,c三个list
         rng_state = np.random.get_state()
         np.random.shuffle(a)
         np.random.set_state(rng_state)
@@ -276,17 +278,17 @@ class DeepFM(BaseEstimator, TransformerMixin):
         has_valid = Xv_valid is not None
         for epoch in range(self.epoch):
             t1 = time()
-            self.shuffle_in_unison_scary(Xi_train, Xv_train, y_train)
+            self.shuffle_in_unison_scary(Xi_train, Xv_train, y_train)  # 使用相同的随机状态随机Xi_train,Xv_train,y_train三个list
             total_batch = int(len(y_train) / self.batch_size)
             for i in range(total_batch):
                 Xi_batch, Xv_batch, y_batch = self.get_batch(Xi_train, Xv_train, y_train, self.batch_size, i)
-                self.fit_on_batch(Xi_batch, Xv_batch, y_batch)
+                self.fit_on_batch(Xi_batch, Xv_batch, y_batch)  # batch 拟合
 
             # evaluate training and validation datasets
-            train_result = self.evaluate(Xi_train, Xv_train, y_train)
+            train_result = self.evaluate(Xi_train, Xv_train, y_train)  # 预测训练集并评估
             self.train_result.append(train_result)
             if has_valid:
-                valid_result = self.evaluate(Xi_valid, Xv_valid, y_valid)
+                valid_result = self.evaluate(Xi_valid, Xv_valid, y_valid)  # 预测验证集并评估
                 self.valid_result.append(valid_result)
             if self.verbose > 0 and epoch % self.verbose == 0:
                 if has_valid:
@@ -295,10 +297,12 @@ class DeepFM(BaseEstimator, TransformerMixin):
                 else:
                     print("[%d] train-result=%.4f [%.1f s]"
                         % (epoch + 1, train_result, time() - t1))
-            if has_valid and early_stopping and self.training_termination(self.valid_result):
+            if has_valid and early_stopping and self.training_termination(self.valid_result):  # 根据情况判断是否终止训练
                 break
 
         # fit a few more epoch on train+valid until result reaches the best_train_score
+        # 使用所有训练数据，进一步拟合一下网络参数（固定超参，拟合网络参数，不会过拟合，这么做主要是想尽量利用多的数据训练网络）
+        #  在拆分训练、验证、测试为6:2:2或8:1:1时有意义，为98:1:1时，没有太大意义
         if has_valid and refit:
             if self.greater_is_better:
                 best_valid_score = max(self.valid_result)
@@ -324,7 +328,7 @@ class DeepFM(BaseEstimator, TransformerMixin):
                     break
 
 
-    def training_termination(self, valid_result):
+    def training_termination(self, valid_result):  # 连续几次在验证集上的评估指标都优于前一次，则可以终止训练
         if len(valid_result) > 5:
             if self.greater_is_better:
                 if valid_result[-1] < valid_result[-2] and \
@@ -350,7 +354,7 @@ class DeepFM(BaseEstimator, TransformerMixin):
         # dummy y
         dummy_y = [1] * len(Xi)
         batch_index = 0
-        Xi_batch, Xv_batch, y_batch = self.get_batch(Xi, Xv, dummy_y, self.batch_size, batch_index)
+        Xi_batch, Xv_batch, y_batch = self.get_batch(Xi, Xv, dummy_y, self.batch_size, batch_index)  # 取一批数据预测
         y_pred = None
         while len(Xi_batch) > 0:
             num_batch = len(y_batch)
@@ -360,7 +364,7 @@ class DeepFM(BaseEstimator, TransformerMixin):
                          self.dropout_keep_fm: [1.0] * len(self.dropout_fm),
                          self.dropout_keep_deep: [1.0] * len(self.dropout_deep),
                          self.train_phase: False}
-            batch_out = self.sess.run(self.out, feed_dict=feed_dict)
+            batch_out = self.sess.run(self.out, feed_dict=feed_dict)  # 预测
 
             if batch_index == 0:
                 y_pred = np.reshape(batch_out, (num_batch,))
